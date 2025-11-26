@@ -1,0 +1,74 @@
+version: '3.8'
+
+services:
+  # ChromaDB - Vector Database
+  chromadb:
+    image: chromadb/chroma:latest
+    ports:
+      - "8000:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+    environment:
+      - IS_PERSISTENT=TRUE
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis - Message Broker for Celery
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - CHROMA_HOST=chromadb
+      - CHROMA_PORT=8000
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      chromadb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - /:/host_root:ro  # Mount host filesystem (read-only) for folder access
+
+  # Celery Worker
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: celery -A src.celery_worker worker --loglevel=info
+    environment:
+      - CHROMA_HOST=chromadb
+      - CHROMA_PORT=8000
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - redis
+      - chromadb
+    volumes:
+      - /:/host_root:ro  # Mount host filesystem (read-only) for file reading
+
+  # Simple HTTP Server for Frontend
+  frontend:
+    image: nginx:alpine
+    ports:
+      - "3000:80"
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro
+
+volumes:
+  chroma_data:

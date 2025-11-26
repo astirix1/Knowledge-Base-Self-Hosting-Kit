@@ -1,0 +1,36 @@
+# Core FastAPI and web server
+fastapi==0.115.0
+uvicorn[standard]==0.31.0
+python-multipart==0.0.9
+pydantic==2.9.2
+pydantic-settings==2.5.2
+
+# Document processing with Docling
+docling==2.13.0
+docling-core==2.5.3
+python-magic==0.4.27
+
+# Vector database and RAG
+chromadb==0.5.23
+sentence-transformers==3.3.1
+
+# LLM integrations
+llama-index==0.12.9
+llama-index-llms-openai==0.3.14
+llama-index-llms-ollama==0.4.2
+llama-index-embeddings-huggingface==0.4.0
+openai==1.57.2
+
+# Task queue
+celery==5.4.0
+redis==5.2.0
+
+# Utilities
+loguru==0.7.3
+python-dotenv==1.0.1
+httpx==0.27.2
+tenacity==9.0.0
+
+# PDF and document handling
+pypdf==5.1.0
+pillow==11.0.0

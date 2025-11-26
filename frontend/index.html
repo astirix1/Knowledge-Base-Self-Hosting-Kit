@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Knowledge Base Self-Hosting</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 600px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+        
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 500;
+        }
+        
+        input, select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+        
+        input:focus, select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        button {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+        }
+        
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .progress-container {
+            margin-top: 20px;
+            display: none;
+        }
+        
+        .progress-bar {
+            width: 100%;
+            height: 30px;
+            background: #f0f0f0;
+            border-radius: 15px;
+            overflow: hidden;
+            position: relative;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            transition: width 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 600;
+            font-size: 12px;
+        }
+        
+        .status-message {
+            margin-top: 10px;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+        
+        .status-success {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .status-error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .status-info {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+        
+        .footer {
+            margin-top: 30px;
+            text-align: center;
+            color: #666;
+            font-size: 12px;
+        }
+        
+        .footer a {
+            color: #667eea;
+            text-decoration: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧠 Knowledge Base Self-Hosting</h1>
+        <p class="subtitle">Turn your codebase into a searchable knowledge base</p>
+        
+        <div class="form-group">
+            <label for="folderPath">Folder Path</label>
+            <input type="text" id="folderPath" placeholder="/path/to/your/project" />
+        </div>
+        
+        <div class="form-group">
+            <label for="collectionName">Collection Name</label>
+            <input type="text" id="collectionName" placeholder="my_codebase" />
+        </div>
+        
+        <div class="form-group">
+            <label for="profile">Ingestion Profile</label>
+            <select id="profile">
+                <option value="codebase">Codebase (Python, JS, Markdown)</option>
+                <option value="documents">Documents (PDF, DOCX)</option>
+                <option value="default">Default (All)</option>
+            </select>
+        </div>
+        
+        <button id="ingestBtn" onclick="startIngestion()">Start Ingestion</button>
+        
+        <div class="progress-container" id="progressContainer">
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill">0%</div>
+            </div>
+            <div class="status-message status-info" id="statusMessage"></div>
+        </div>
+        
+        <div class="footer">
+            Part of <a href="https://github.com/yourusername/mail_modul_alpha" target="_blank">Mail Modul Alpha</a> • 
+            <a href="https://github.com/yourusername/self-hosting-kit" target="_blank">View on GitHub</a>
+        </div>
+    </div>
+    
+    <script>
+        const API_URL = 'http://localhost:8080';
+        let currentTaskId = null;
+        let pollInterval = null;
+        
+        async function startIngestion() {
+            const folderPath = document.getElementById('folderPath').value;
+            const collectionName = document.getElementById('collectionName').value;
+            const profile = document.getElementById('profile').value;
+            
+            if (!folderPath || !collectionName) {
+                alert('Please fill in all fields');
+                return;
+            }
+            
+            const btn = document.getElementById('ingestBtn');
+            btn.disabled = true;
+            btn.textContent = 'Starting...';
+            
+            try {
+                const response = await fetch(`${API_URL}/ingest`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        folder_path: folderPath,
+                        collection_name: collectionName,
+                        profile: profile,
+                        recursive: true
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    currentTaskId = data.task_id;
+                    showProgress();
+                    startPolling();
+                } else {
+                    showError(data.detail || 'Failed to start ingestion');
+                    btn.disabled = false;
+                    btn.textContent = 'Start Ingestion';
+                }
+            } catch (error) {
+                showError('Failed to connect to backend');
+                btn.disabled = false;
+                btn.textContent = 'Start Ingestion';
+            }
+        }
+        
+        function showProgress() {
+            document.getElementById('progressContainer').style.display = 'block';
+        }
+        
+        function updateProgress(progress, message) {
+            const fill = document.getElementById('progressFill');
+            fill.style.width = progress + '%';
+            fill.textContent = progress + '%';
+            
+            const statusMsg = document.getElementById('statusMessage');
+            statusMsg.textContent = message;
+            statusMsg.className = 'status-message status-info';
+        }
+        
+        function showSuccess(message) {
+            const statusMsg = document.getElementById('statusMessage');
+            statusMsg.textContent = message;
+            statusMsg.className = 'status-message status-success';
+            
+            const btn = document.getElementById('ingestBtn');
+            btn.disabled = false;
+            btn.textContent = 'Start Ingestion';
+        }
+        
+        function showError(message) {
+            const statusMsg = document.getElementById('statusMessage');
+            statusMsg.textContent = message;
+            statusMsg.className = 'status-message status-error';
+            statusMsg.style.display = 'block';
+        }
+        
+        async function startPolling() {
+            pollInterval = setInterval(async () => {
+                try {
+                    const response = await fetch(`${API_URL}/task/${currentTaskId}`);
+                    const data = await response.json();
+                    
+                    if (data.status === 'processing') {
+                        updateProgress(
+                            data.progress || 0,
+                            `Processing: ${data.current_file || ''} (${data.processed}/${data.total})`
+                        );
+                    } else if (data.status === 'success') {
+                        clearInterval(pollInterval);
+                        updateProgress(100, 'Ingestion complete!');
+                        showSuccess(`Successfully ingested ${data.result.processed_files} files into '${data.result.collection}'`);
+                    } else if (data.status === 'failed') {
+                        clearInterval(pollInterval);
+                        showError(`Ingestion failed: ${data.error}`);
+                    }
+                } catch (error) {
+                    console.error('Polling error:', error);
+                }
+            }, 1000);
+        }
+    </script>
+</body>
+</html>
