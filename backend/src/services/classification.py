@@ -1,159 +1,82 @@
-"""
-Document Classification Service - Community Edition Stub
+from typing import Dict
+from pydantic import BaseModel, Field
 
-This is a minimal stub implementation for document classification.
-
-The full production version includes:
-- Multi-label classification with confidence scoring
-- Domain-specific classifiers (legal, medical, financial, etc.)
-- Language detection and multilingual support
-- Sentiment analysis
-- PII detection
-- Content safety checks
-- Custom taxonomy support
-- Active learning from user feedback
-
-For production deployment with advanced classification, contact sales.
-"""
-
-from typing import Dict, Any, Optional
-from dataclasses import dataclass
-from loguru import logger
-import re
-
-
-@dataclass
-class ClassificationResult:
+class ClassificationResult(BaseModel):
     """
-    Result of document classification.
-
-    Community Edition: Basic type detection
-    Enterprise Edition: Multi-label with confidence, domain-specific classifiers
+    Represents the result of a classification task.
     """
-    label: str
-    confidence: float
-    metadata: Dict[str, Any]
-    edition: str = "community"
-
-    def dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for serialization."""
-        return {
-            "label": self.label,
-            "confidence": self.confidence,
-            "metadata": self.metadata,
-            "edition": self.edition
-        }
-
+    label: str = Field(..., description="The predicted label for the document.")
+    confidence: float = Field(..., description="The confidence score of the prediction, between 0.0 and 1.0.")
+    method: str = Field(..., description="The method used for classification (e.g., 'spacy_inference', 'rule_based', 'meta_fallback').")
+    scores: Dict[str, float] = Field(default_factory=dict, description="A dictionary of all class labels and their corresponding scores.")
+    should_use_agent: bool = Field(False, description="A flag indicating if the document should be passed to an agent for further processing, based on confidence.")
 
 class ClassificationService:
     """
-    Document classification service.
-
-    Community Edition: Basic heuristic-based classification
-    Enterprise Edition: ML-powered multi-label classification with custom models
-
-    NOTE: This is a minimal reference implementation.
-    Production features include:
-    - Custom fine-tuned classifiers per domain
-    - Multi-label predictions
-    - Confidence calibration
-    - Active learning integration
-    - PII and sensitive data detection
+    Technical service for document classification.
+    This service orchestrates the classification process, including preprocessing,
+    inference using a pre-existing model, and fallback strategies.
+    
+    This class is designed for inference only; no training is performed here.
     """
 
     def __init__(self):
-        """Initialize classification service."""
-        logger.info("ClassificationService initialized (Community Edition)")
-        logger.info("Enterprise features: ML models, multi-label, PII detection - contact sales")
+        # Here you would initialize and load your pre-trained models,
+        # e.g., a spaCy model or a Hugging Face transformer.
+        # For now, we'll leave this empty until we integrate a specific model.
+        pass
 
     async def classify_document(
         self,
         text: str,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: dict
     ) -> ClassificationResult:
         """
-        Classify document using basic heuristics.
+        Performs the classification of a document.
 
-        Community Edition: Simple rule-based classification
-        Enterprise Edition: ML-powered with custom models
+        This method orchestrates preprocessing, the classification mechanism,
+        and fallback strategies.
 
         Args:
-            text: Document text content
-            metadata: Optional document metadata
+            text: The text content of the document to classify.
+            metadata: A dictionary of metadata associated with the document (e.g., filename, mime_type).
 
         Returns:
-            ClassificationResult with basic label
+            A ClassificationResult object with the classification details.
         """
-        metadata = metadata or {}
-
-        # Basic heuristic classification (production uses ML models)
-        label = self._basic_heuristic_classify(text, metadata)
-
-        logger.info(f"Document classified as: {label} (Community Edition - basic heuristics)")
-
+        # This is a placeholder implementation.
+        # The actual logic for preprocessing, model inference, and fallbacks
+        # will be implemented in the next steps.
+        
+        print("Placeholder: Classifying document...")
+        
+        # Dummy result for now
         return ClassificationResult(
-            label=label,
-            confidence=0.75,  # Fixed confidence in community edition
-            metadata={
-                "method": "heuristic",
-                "note": "Enterprise Edition: ML-powered classification with calibrated confidence"
-            },
-            edition="community"
+            label="other",
+            confidence=0.1,
+            method="placeholder",
+            scores={"other": 0.1},
+            should_use_agent=True
         )
 
-    def _basic_heuristic_classify(self, text: str, metadata: Dict[str, Any]) -> str:
-        """
-        Basic heuristic-based classification.
+# Example of how to use the service (for testing purposes)
+async def main():
+    import asyncio
+    
+    classification_service = ClassificationService()
+    sample_text = "This is a test document."
+    sample_metadata = {"filename": "test.txt", "mime_type": "text/plain"}
+    
+    result = await classification_service.classify_document(sample_text, sample_metadata)
+    
+    print("Classification Result:")
+    print(f"  Label: {result.label}")
+    print(f"  Confidence: {result.confidence}")
+    print(f"  Method: {result.method}")
+    print(f"  Should use agent: {result.should_use_agent}")
 
-        Production version uses trained ML models with much higher accuracy.
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(main())
 
-        Args:
-            text: Document text
-            metadata: Document metadata
-
-        Returns:
-            Basic document type label
-        """
-        text_lower = text.lower()
-
-        # Very simple heuristics (production uses ML)
-        if any(word in text_lower for word in ['invoice', 'payment', 'total amount']):
-            return "financial"
-        elif any(word in text_lower for word in ['contract', 'agreement', 'terms']):
-            return "legal"
-        elif any(word in text_lower for word in ['import', 'def ', 'function', 'class ']):
-            return "code"
-        elif any(word in text_lower for word in ['readme', 'installation', 'usage']):
-            return "documentation"
-        else:
-            return "general"
-
-    async def classify_batch(
-        self,
-        documents: list[Dict[str, Any]]
-    ) -> list[ClassificationResult]:
-        """
-        Classify multiple documents.
-
-        Community Edition: Sequential processing
-        Enterprise Edition: Batch processing with GPU acceleration
-
-        Args:
-            documents: List of documents with 'text' and optional 'metadata'
-
-        Returns:
-            List of ClassificationResult
-        """
-        results = []
-        for doc in documents:
-            result = await self.classify_document(
-                text=doc.get('text', ''),
-                metadata=doc.get('metadata')
-            )
-            results.append(result)
-
-        return results
-
-
-# Singleton instance for easy import
 classification_service = ClassificationService()

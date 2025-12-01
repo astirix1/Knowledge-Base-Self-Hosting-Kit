@@ -53,7 +53,6 @@ backend/
 - Docling 2.13.0 for document processing
 - ChromaDB 0.5.23 for vector storage
 - LlamaIndex 0.12.9 for RAG pipeline
-- Celery 5.4.0 + Redis for async tasks
 - Sentence-transformers for embeddings
 
 ## Next Steps for Deployment
@@ -71,11 +70,11 @@ backend/
 3. **Verify health**
    - API: http://localhost:8080/health
    - API Docs: http://localhost:8080/docs
-   - Frontend UI: http://localhost:3000
+   - Frontend UI: http://localhost:8080
 
 4. **Test ingestion**
    - Use the web UI to ingest a test folder
-   - Monitor Celery worker logs
+   - Monitor backend logs
    - Check ChromaDB collections
 
 ## Known Configuration Requirements

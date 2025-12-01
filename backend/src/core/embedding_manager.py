@@ -73,20 +73,28 @@ class EmbeddingManager:
         Returns:
             Config dictionary
         """
+        # Start with ENV variables as base
+        base_config = {
+            "OLLAMA_HOST": os.getenv("OLLAMA_HOST", "http://localhost:11434"),
+            "EMBEDDING_MODEL": os.getenv("EMBEDDING_MODEL", "nomic-embed-text:latest"),
+            "EMBEDDING_PROVIDER": os.getenv("EMBEDDING_PROVIDER", "ollama"),
+            "OPENAI_API_KEY": os.getenv("OPENAI_API_KEY", ""),
+        }
+
+        # Try to load from config_service (if .env file exists)
         try:
             from src.services.config_service import config_service
-            base_config = config_service.load_configuration()
+            file_config = config_service.load_configuration()
+            # Only override if key exists in file_config
+            for key in base_config.keys():
+                if key in file_config and file_config[key]:
+                    base_config[key] = file_config[key]
         except (ImportError, Exception) as e:
-            logger.debug(f"config_service not available, using os.getenv(): {e}")
-            base_config = {
-                "OLLAMA_HOST": os.getenv("OLLAMA_HOST", "http://localhost:11434"),
-                "EMBEDDING_MODEL": os.getenv("EMBEDDING_MODEL", "nomic-embed-text:latest"),
-                "EMBEDDING_PROVIDER": os.getenv("EMBEDDING_PROVIDER", "ollama"),
-                "OPENAI_API_KEY": os.getenv("OPENAI_API_KEY", ""),
-            }
+            logger.debug(f"config_service not available, using ENV only: {e}")
 
-        # Override with config_override
-        base_config.update(self.config_override)
+        # Override with config_override (highest priority)
+        if self.config_override:
+            base_config.update(self.config_override)
         return base_config
 
     def get_embeddings(

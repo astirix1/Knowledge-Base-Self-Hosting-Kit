@@ -88,21 +88,22 @@ def get_config(use_hot_reload: bool = True) -> LLMConfig:
             from src.services.config_service import config_service
             config_dict = config_service.load_configuration()
 
-            provider = config_dict.get("LLM_PROVIDER")
+            # Try .env file first, fall back to ENV variables
+            provider = config_dict.get("LLM_PROVIDER") or os.getenv("LLM_PROVIDER")
             if not provider:
-                raise ValueError("LLM_PROVIDER not found in config")
+                raise ValueError("LLM_PROVIDER not found in config or environment")
 
-            model = config_dict.get("LLM_MODEL")
+            model = config_dict.get("LLM_MODEL") or os.getenv("LLM_MODEL")
             if not model:
-                raise ValueError("LLM_MODEL not found in config")
+                raise ValueError("LLM_MODEL not found in config or environment")
 
-            embedding_provider = config_dict.get("EMBEDDING_PROVIDER")
+            embedding_provider = config_dict.get("EMBEDDING_PROVIDER") or os.getenv("EMBEDDING_PROVIDER")
             if not embedding_provider:
-                raise ValueError("EMBEDDING_PROVIDER not found in config")
+                raise ValueError("EMBEDDING_PROVIDER not found in config or environment")
 
-            embedding_model = config_dict.get("EMBEDDING_MODEL")
+            embedding_model = config_dict.get("EMBEDDING_MODEL") or os.getenv("EMBEDDING_MODEL")
             if not embedding_model:
-                raise ValueError("EMBEDDING_MODEL not found in config")
+                raise ValueError("EMBEDDING_MODEL not found in config or environment")
 
             chroma_path = config_dict.get("CHROMA_PATH", "./chroma_data")
             collection_name = config_dict.get("CHROMA_COLLECTION", "mail_knowledge_base")
@@ -278,16 +279,15 @@ def create_llm_instances(config: LLMConfig, use_hot_reload: bool = True) -> Dict
     instances = {}
 
     # Get OLLAMA_HOST (with hot-reload if enabled)
-    ollama_host = "http://localhost:11434"  # Default (standard Ollama port)
     if use_hot_reload:
         try:
             from src.services.config_service import config_service
             config_dict = config_service.load_configuration()
-            ollama_host = config_dict.get("OLLAMA_HOST", ollama_host)
+            ollama_host = config_dict.get("OLLAMA_HOST", os.getenv("OLLAMA_HOST", "http://localhost:11434"))
         except ImportError:
-            ollama_host = os.getenv("OLLAMA_HOST", ollama_host)
+            ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
     else:
-        ollama_host = os.getenv("OLLAMA_HOST", ollama_host)
+        ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 
     # Create chat LLM
     provider_info = LLM_PROVIDERS[config.provider]
@@ -299,7 +299,7 @@ def create_llm_instances(config: LLMConfig, use_hot_reload: bool = True) -> Dict
             model=config.model,
             base_url=ollama_host,
             temperature=0.1,  # Niedrige Temperatur für fokussierte Antworten
-            request_timeout=90.0 # Timeout hinzugefügt
+            request_timeout=300.0 # 5 minutes timeout for slower models
         )
     elif config.provider == "openai":
         from llama_index.llms.openai import OpenAI

@@ -26,3 +26,16 @@ Thumbs.db
 
 # Environment
 .env
+
+# Data & Storage
+data/
+chroma_data/
+
+# Development
+.claude/
+*.backup
+*.backup_*
+
+# Temporary files
+create_demo.py
+DEPLOYMENT_NOTES.md

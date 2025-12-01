@@ -11,9 +11,7 @@ import logging
 import asyncio
 
 from src.api.v1.dependencies import get_rag_client
-from src.services.auth_service import get_current_user
-from src.database.models import User, CollectionIndexConfig
-from src.database.database import get_db
+from src.services.auth_service import get_current_user, DummyUser
 from src.core.collection_registry import get_collection_registry, CollectionRegistry
 from src.core.exceptions import (
     CollectionNotFoundError,
@@ -21,8 +19,10 @@ from src.core.exceptions import (
     ValidationError
 )
 from src.core.feature_limits import FeatureLimits, Edition
-from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
+
+# Community Edition - no database
+User = DummyUser
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -68,20 +68,8 @@ async def create_collection(
     """Create new ChromaDB collection."""
     logger.debug(f"Creating collection: {collection_name} with {embedding_provider}/{embedding_model}")
 
-    # Check if user is on Developer Edition and has reached collection limit
-    if rag_client.edition == Edition.DEVELOPER:
-        all_collections_response = await rag_client.list_collections()
-        if all_collections_response.is_success and all_collections_response.data:
-            current_count = len(all_collections_response.data)
-            if current_count >= FeatureLimits.get_limit_value('max_collections', rag_client.edition):
-                raise HTTPException(
-                    status_code=403,
-                    detail=(
-                        f"Collection limit reached for Developer Edition. "
-                        f"Maximum {FeatureLimits.get_limit_value('max_collections', rag_client.edition)} collection(s) allowed. "
-                        "Upgrade to Team Edition for more collections."
-                    )
-                )
+    # Note: Community/Developer Edition has unlimited collections (-1)
+    # No limits enforced for self-hosted deployments
 
     embedding_config = {
         "provider": embedding_provider,
@@ -231,7 +219,7 @@ class CollectionConfigUpdate(BaseModel):
 
 @router.get("/collections/configs")
 async def get_all_collection_configs(
-    db: AsyncSession = Depends(get_db),
+    
     current_user: User = Depends(get_current_user)
 ):
     """Gibt alle Collection-Konfigurationen zurück"""
@@ -253,7 +241,7 @@ async def get_all_collection_configs(
 @router.get("/collections/{collection_name}/config")
 async def get_collection_config(
     collection_name: str,
-    db: AsyncSession = Depends(get_db),
+    
     current_user: User = Depends(get_current_user)
 ):
     """Holt Config für eine Collection"""
@@ -272,7 +260,7 @@ async def get_collection_config(
 async def update_collection_config(
     collection_name: str,
     update: CollectionConfigUpdate,
-    db: AsyncSession = Depends(get_db),
+    
     current_user: User = Depends(get_current_user)
 ):
     """Updated Collection-Config (Priority, Enabled, etc.)"""
@@ -306,7 +294,7 @@ async def update_collection_config(
 
 @router.get("/collections/analytics")
 async def get_collection_analytics(
-    db: AsyncSession = Depends(get_db),
+    
     current_user: User = Depends(get_current_user)
 ):
     """Gibt Nutzungs-Statistiken aller Collections zurück"""

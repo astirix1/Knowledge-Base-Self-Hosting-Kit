@@ -6,13 +6,16 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     libmagic1 \
     libgomp1 \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install Python dependencies
+# Docker BuildKit caches pip packages automatically between builds
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install -r requirements.txt
 
-# Copy application code
+# Copy application code (separate layer so code changes don't rebuild dependencies)
 COPY . .
 
 # Expose port

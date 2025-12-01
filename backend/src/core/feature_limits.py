@@ -16,6 +16,7 @@ import os
 class Edition(Enum):
     """Application edition tiers."""
     COMMUNITY = "community"      # Open source, basic features
+    DEVELOPER = "community"      # Alias for COMMUNITY (backwards compatibility)
     PROFESSIONAL = "professional"  # Extended features (contact sales)
     ENTERPRISE = "enterprise"     # Full features + support (contact sales)
 
@@ -24,8 +25,8 @@ class FeatureLimits:
     """
     Feature limits based on edition tier.
 
-    Community Edition: Basic RAG functionality for evaluation
-    Professional/Enterprise: Contact sales for full feature set
+    Community Edition: Unlimited RAG functionality for self-hosting
+    Professional/Enterprise: Contact sales for managed features & support
 
     NOTE: This is a reference implementation showing the architecture.
     Production versions include:
@@ -35,36 +36,43 @@ class FeatureLimits:
     - SSO and RBAC integration
     """
 
-    # Community Edition Limits (evaluation/demo purposes)
+    # Community Edition - Self-Hosting Kit (No Limits!)
     COMMUNITY_LIMITS = {
-        # Collection limits
-        "max_collections": 3,
-        "max_documents_per_collection": 1000,
-        "max_total_documents": 3000,
+        # Collection limits - UNLIMITED for self-hosting
+        "max_collections": -1,  # -1 = unlimited
+        "max_documents_per_collection": -1,  # -1 = unlimited
+        "max_total_documents": -1,  # -1 = unlimited
 
-        # File format limits
-        "allowed_file_formats": [".pdf", ".txt", ".md"],
-        "max_file_size_mb": 10,
+        # File format support - All formats available (documents + code)
+        "allowed_file_formats": [
+            # Documents
+            ".pdf", ".txt", ".md", ".docx", ".html", ".pptx", ".xlsx", ".csv", ".json", ".xml",
+            # Code files
+            ".py", ".js", ".ts", ".jsx", ".tsx", ".java", ".cpp", ".c", ".h", ".hpp",
+            ".go", ".rs", ".rb", ".php", ".swift", ".kt", ".cs", ".sh", ".bash", ".yaml", ".yml",
+            ".toml", ".ini", ".conf", ".sql", ".r", ".scala", ".pl", ".lua", ".vim"
+        ],
+        "max_file_size_mb": 100,  # Reasonable limit for stability
 
-        # Feature flags
-        "enable_advanced_rag": False,  # Basic retrieval only
-        "enable_hybrid_search": True,   # Vector + keyword search included
-        "enable_reranking": False,      # Advanced reranking: Professional+
-        "enable_multi_collection": False,  # Multi-collection query: Professional+
-        "enable_batch_ingestion": True,    # Batch processing included
-        "enable_custom_embeddings": False, # Custom models: Enterprise only
+        # Feature flags - All features enabled
+        "enable_advanced_rag": True,
+        "enable_hybrid_search": True,
+        "enable_reranking": True,
+        "enable_multi_collection": True,
+        "enable_batch_ingestion": True,
+        "enable_custom_embeddings": True,
 
-        # Performance limits
-        "max_concurrent_queries": 2,
-        "query_timeout_seconds": 30,
+        # Performance limits - Generous defaults
+        "max_concurrent_queries": 100,
+        "query_timeout_seconds": 300,
 
-        # API rate limits (per hour)
-        "api_query_limit": 1000,
+        # API rate limits - No artificial limits for self-hosting
+        "api_query_limit": -1,  # -1 = unlimited
 
         # Edition metadata
-        "edition_name": "Community",
+        "edition_name": "Community (Self-Hosted)",
         "support_level": "community",
-        "upgrade_url": "https://your-domain.com/pricing"
+        "upgrade_url": "https://github.com/yourusername/self-hosting-kit"
     }
 
     # Note: Professional and Enterprise limits are defined in the
@@ -97,6 +105,21 @@ class FeatureLimits:
         }
 
     @classmethod
+    def get_limit_value(cls, feature: str, edition: Edition = None) -> Any:
+        """
+        Get the limit value for a specific feature.
+
+        Args:
+            feature: Feature name (e.g., 'max_collections')
+            edition: Edition tier
+
+        Returns:
+            The limit value for the feature
+        """
+        limits = cls.get_limits(edition)
+        return limits.get(feature)
+
+    @classmethod
     def check_limit(cls, feature: str, current_value: int, edition: Edition = None) -> bool:
         """
         Check if current value is within limits for edition.
@@ -117,6 +140,20 @@ class FeatureLimits:
             return True
 
         return current_value < max_value
+
+    @classmethod
+    def check_collection_limit(cls, current_count: int, edition: Edition = None) -> bool:
+        """
+        Check if current collection count is within limits.
+
+        Args:
+            current_count: Current number of collections
+            edition: Edition tier
+
+        Returns:
+            True if within limits, False otherwise
+        """
+        return cls.check_limit('max_collections', current_count, edition)
 
     @classmethod
     def is_feature_enabled(cls, feature: str, edition: Edition = None) -> bool:

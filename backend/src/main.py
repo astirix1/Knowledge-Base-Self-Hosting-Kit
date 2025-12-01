@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 import sys
+import os
 
 from src.api.v1.rag import router as rag_router
 from src.core.chroma_manager import get_chroma_manager
@@ -31,9 +32,10 @@ async def lifespan(app: FastAPI):
 
     try:
         # Configure ChromaDB connection
-        config = get_config()
-        chroma_host = config.get("chroma_host", "localhost")
-        chroma_port = config.get("chroma_port", 8000)
+        # use_hot_reload=False to read from ENV vars instead of .env file
+        config = get_config(use_hot_reload=False)
+        chroma_host = os.getenv("CHROMA_HOST", "localhost")
+        chroma_port = int(os.getenv("CHROMA_PORT", 8000))
 
         chroma_manager = get_chroma_manager()
         chroma_manager.configure(chroma_host, chroma_port)
@@ -74,14 +76,19 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS middleware for development
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately for production
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# CORS middleware (only enabled in DEBUG mode for development)
+# In production with nginx reverse proxy, CORS is not needed
+if os.getenv("DEBUG", "false").lower() == "true":
+    logger.info("🔓 CORS enabled (DEBUG mode)")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://localhost:3000", "http://localhost:8080"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+else:
+    logger.info("🔒 CORS disabled (Production mode - using nginx reverse proxy)")
 
 # Include RAG router
 app.include_router(rag_router, prefix="/api/v1/rag", tags=["RAG"])

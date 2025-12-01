@@ -30,13 +30,20 @@ async def query_rag(
 
 
     try:
+        # Handle both 'collection' (singular) and 'collections' (plural) from frontend
+        collection_names = request.collections
+        if not collection_names and request.collection:
+            collection_names = [request.collection]
+        elif not collection_names:
+            raise ValidationError("Either 'collection' or 'collections' must be provided")
+        
         # Define a default system context
         system_context = "You are a helpful assistant. Answer the user's query based on the provided context."
 
         # Include user ID for experiment tracking
         result = await query_service.answer_query(
             query_text=request.query,
-            collection_names=request.collections,
+            collection_names=collection_names,
             final_k=request.k,
             system_prompt=system_context,
             temperature=request.temperature or 0.1,
@@ -61,6 +68,106 @@ async def query_rag(
 
     except Exception as e:
         logger.error(f"Query failed: {e}", exc_info=True)
+        raise ChromaDBError(str(e))
+
+
+@router.post("/search")
+async def search_documents(
+    request: QueryRequest,
+    rag_client=Depends(get_rag_client),
+    current_user: User = Depends(get_current_user)
+):
+    """Search for documents without LLM generation - instant results!"""
+    logger.debug(f"Search request: collections={request.collections}, k={request.k}, query_len={len(request.query)}")
+
+    try:
+        import asyncio
+
+        # Handle both 'collection' (singular) and 'collections' (plural) from frontend
+        collection_names = request.collections
+        if not collection_names and request.collection:
+            collection_names = [request.collection]
+        elif not collection_names:
+            raise ValidationError("Either 'collection' or 'collections' must be provided")
+
+        # Direct vector search without LLM/QueryService
+        all_results = []
+        total_candidates = 0
+
+        # Get embeddings for the query
+        embedding_instance = rag_client.embedding_manager.get_embeddings()
+        if not embedding_instance:
+            raise ChromaDBError("Embedding service not available")
+
+        # Generate query embedding
+        if hasattr(embedding_instance, 'aget_text_embedding'):
+            query_embedding = await embedding_instance.aget_text_embedding(request.query)
+        elif hasattr(embedding_instance, 'get_text_embedding'):
+            query_embedding = await asyncio.to_thread(embedding_instance.get_text_embedding, request.query)
+        elif hasattr(embedding_instance, 'aembed_query'):
+            query_embedding = await embedding_instance.aembed_query(request.query)
+        elif hasattr(embedding_instance, 'embed_query'):
+            query_embedding = await asyncio.to_thread(embedding_instance.embed_query, request.query)
+        else:
+            raise ChromaDBError("Embedding instance has no compatible embed method")
+
+        # Query each collection
+        for collection_name in collection_names:
+            try:
+                collection = await asyncio.to_thread(
+                    rag_client.chroma_manager.get_collection,
+                    collection_name
+                )
+
+                if collection:
+                    # Query with embedding
+                    results = await asyncio.to_thread(
+                        collection.query,
+                        query_embeddings=[query_embedding],
+                        n_results=request.k
+                    )
+
+                    # Process results
+                    if results and 'documents' in results and results['documents']:
+                        docs = results['documents'][0] if results['documents'] else []
+                        metadatas = results['metadatas'][0] if 'metadatas' in results and results['metadatas'] else []
+                        distances = results['distances'][0] if 'distances' in results and results['distances'] else []
+
+                        for i, doc in enumerate(docs):
+                            metadata = metadatas[i] if i < len(metadatas) else {}
+                            distance = distances[i] if i < len(distances) else 1.0
+
+                            all_results.append({
+                                "content": doc,
+                                "source_collection": collection_name,
+                                "relevance_score": 1.0 - distance,  # Convert distance to similarity
+                                "distance": distance,
+                                "metadata": metadata,
+                                "source": metadata.get('source', 'Unknown'),
+                                "page_number": metadata.get('page_number')
+                            })
+
+                        total_candidates += len(docs)
+
+            except Exception as e:
+                logger.warning(f"Failed to search collection {collection_name}: {e}")
+                continue
+
+        # Sort by relevance score
+        ranked_nodes = sorted(all_results, key=lambda x: x['relevance_score'], reverse=True)[:request.k]
+
+        logger.info(f"Search successful, returning {len(ranked_nodes)} documents from {total_candidates} candidates.")
+
+        # ranked_nodes are already dicts, no conversion needed
+        return {
+            "documents": ranked_nodes,
+            "total_found": len(ranked_nodes),
+            "total_candidates": total_candidates,
+            "query": request.query
+        }
+
+    except Exception as e:
+        logger.error(f"Search failed: {e}", exc_info=True)
         raise ChromaDBError(str(e))
 
 

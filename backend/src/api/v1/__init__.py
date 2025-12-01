@@ -1,17 +1,6 @@
+# Community Edition - RAG only
 from . import (
-    auth,
-    email,
     rag,
-    learning,
-    auto_draft,
-    dashboard,
-    config,
-    services,
-    docs,
-    statistics,
-    onboarding,
-    upgrade,
-    feedback,
-    cache,
-    tasks
+    docs
 )
+# NOTE: config removed - requires database dependencies not in Community Edition

@@ -6,6 +6,7 @@ are resource-intensive, so creating multiple instances would cause performance i
 """
 
 import threading
+import dataclasses
 from typing import Dict, Any, Optional
 from loguru import logger
 
@@ -122,21 +123,25 @@ def get_llm(model: Optional[str] = None, temperature: Optional[float] = None):
         The main LLM instance for text generation.
     """
     singleton = get_llm_singleton()
-    
+
     # If no custom parameters are given, return the default singleton instance
     if model is None and temperature is None:
         return singleton.llm
 
+    # If only temperature is provided (no custom model), use singleton model
+    if model is None:
+        model = singleton.config.model
+
     # If custom parameters are provided, create a new instance
     logger.info(f"Creating a new LLM instance with custom parameters: model={model}, temp={temperature}")
-    
-    config = singleton.config.copy() # Create a copy to avoid modifying the singleton's config
-    
-    if model:
-        config["model"] = model
-    if temperature is not None:
-        config["temperature"] = temperature
-        
+
+    # Create a modified copy of the config using dataclasses.replace()
+    config_updates = {"model": model}
+    # Note: LLMConfig doesn't have a temperature field, so we ignore it for now
+    # The temperature parameter is passed to the LLM during query execution
+
+    config = dataclasses.replace(singleton.config, **config_updates)
+
     # create_llm_instances returns a dictionary, we need the 'llm' part
     custom_instances = create_llm_instances(config)
     return custom_instances.get("llm")

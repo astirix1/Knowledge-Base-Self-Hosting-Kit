@@ -69,11 +69,11 @@ async def scan_folder_endpoint(
         # Validate folder path
         if not os.path.exists(folder_path):
             logger.error(f"Folder does not exist: {folder_path}")
-            raise RAGFileNotFoundError(folder_path)
+            raise HTTPException(status_code=404, detail=f"Folder not found: {folder_path}")
 
         if not os.path.isdir(folder_path):
             logger.error(f"Path is not a directory: {folder_path}")
-            raise ValidationError(f"Path is not a directory: {folder_path}", details={"folder_path": folder_path})
+            raise HTTPException(status_code=400, detail=f"Path is not a directory: {folder_path}")
 
         # Perform scan using DoclingService
         # Note: DoclingService.process_directory actually processes the files (heavy).
@@ -83,23 +83,21 @@ async def scan_folder_endpoint(
         files = []
         total_size = 0
         extension_counts = {}
-        
-        # Use Docling's supported extensions as base filter
-        docling_supported = set(docling_service.get_supported_extensions())
-        
+
+        # Use configured allowed_extensions (includes code files + documents)
+        # Don't limit to Docling - we want to scan ALL configured formats
+
         for root, _, filenames in os.walk(folder_path):
             # Depth check
             depth = root[len(folder_path):].count(os.sep)
             if depth > max_depth:
                 continue
-                
+
             for filename in filenames:
                 file_path = os.path.join(root, filename)
                 ext = os.path.splitext(filename)[1].lower()
-                
-                # Filter logic
-                if ext not in docling_supported:
-                    continue
+
+                # Filter logic - only check against allowed_extensions
                 if allowed_extensions and ext not in allowed_extensions:
                     continue
                     
@@ -153,4 +151,4 @@ async def scan_folder_endpoint(
         raise
     except Exception as e:
         logger.error(f"Folder scan failed: {e}", exc_info=True)
-        raise ValidationError(str(e))
+        raise HTTPException(status_code=500, detail=f"Folder scan failed: {str(e)}")

@@ -84,8 +84,7 @@ async def ingest_batch_multi_collection(
             )
 
     try:
-        # from src.services.ingestion_task_manager import ingestion_task_manager
-
+        from src.services.ingestion_task_manager import ingestion_task_manager
 
         # STEP 1: Validate all files exist and are readable
         validated_assignments = []
@@ -177,35 +176,53 @@ async def ingest_batch_multi_collection(
         # For batch ingest with multiple collections, use first collection or "batch" as task name
         primary_collection = list(collections_affected)[0] if collections_affected else "batch"
 
-        # Prepare assignments for Celery task
-        task_assignments = [
-            {"file_path": a["file_path"], "collection": a["collection"]}
-            for a in validated_assignments
-        ]
-
-        # Trigger Celery Task directly
-        from src.celery_worker import ingest_batch_task
-        
-        task = ingest_batch_task.delay(
-            assignments=task_assignments,
+        task_id = ingestion_task_manager.create_task(
+            collection_name=primary_collection,
+            user_id=str(current_user.id),
+            assignments=validated_assignments,
             chunk_size=request.chunk_size if hasattr(request, 'chunk_size') else 500,
             chunk_overlap=request.chunk_overlap if hasattr(request, 'chunk_overlap') else 50
         )
 
-        logger.info(f"Created ingestion task: {task.id}")
+        logger.info(f"Created ingestion task: {task_id}")
 
-        return IngestionResponse(
-            success=True,
-            processed_files=0,
-            failed_files=0,
-            details={
-                "task_id": task.id,
-                "status": "queued",
-                "total_files": len(validated_assignments),
-                "collections": list(collections_affected)
-            },
-            task_id=task.id
-        )
+        # STEP 4: Start async processing if requested
+        if request.async_mode:
+            # Phase 8f: Use new async process_task_async() method via processor
+            processor = ingestion_task_manager.get_processor()
+            background_tasks.add_task(
+                processor.process_task_async,
+                task_id=task_id,
+                rag_client=rag_client
+            )
+
+            logger.info(f"Started async processing for task {task_id}")
+
+            return IngestionResponse(
+                success=True,
+                processed_files=0,
+                failed_files=0,
+                details={
+                    "task_id": task_id,
+                    "status": "processing",
+                    "total_files": len(validated_assignments),
+                    "collections": list(collections_affected)
+                },
+                task_id=task_id
+            )
+        else:
+            # Synchronous processing (Phase 8f: using async method via processor)
+            logger.info("Processing batch synchronously")
+            processor = ingestion_task_manager.get_processor()
+            result = await processor.process_task_async(task_id, rag_client)
+
+            return IngestionResponse(
+                success=result.get("success", False),
+                processed_files=result.get("processed_files", 0),
+                failed_files=result.get("failed_files", 0),
+                details=result,
+                task_id=task_id
+            )
 
     except (RAGFileNotFoundError, ValidationError, ChromaDBError, IngestionError):
         raise  # Re-raise custom exceptions

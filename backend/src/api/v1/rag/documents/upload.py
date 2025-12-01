@@ -39,13 +39,34 @@ from src.core.exceptions import (
     IngestionError,
     ServiceUnavailableError
 )
-from src.workers.tasks import ingest_documents_task
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # Configuration
 MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 MB
+
+
+def flatten_metadata(metadata: dict) -> dict:
+    """Flatten nested metadata for ChromaDB compatibility.
+
+    ChromaDB only accepts str, int, float, bool, or None as metadata values.
+    This function converts nested dicts and lists to JSON strings.
+    """
+    flattened = {}
+    for key, value in metadata.items():
+        if value is None:
+            flattened[key] = None
+        elif isinstance(value, (str, int, float, bool)):
+            flattened[key] = value
+        elif isinstance(value, (dict, list)):
+            # Convert nested structures to JSON string
+            import json
+            flattened[key] = json.dumps(value)
+        else:
+            # Convert other types to string
+            flattened[key] = str(value)
+    return flattened
 
 
 @router.post("/validate-upload")
@@ -166,7 +187,7 @@ async def upload_documents(
 
                     # Use Central Docling Service
                     # This handles Repair, Analysis, and Conversion (OCR/Tables)
-                    process_result = docling_service.process_file(file_path)
+                    process_result = await docling_service.process_file(file_path)
                     
                     if not process_result["success"]:
                         raise IngestionError(f"Docling processing failed: {process_result.get('error')}")
@@ -215,7 +236,7 @@ async def upload_documents(
                         )
 
                     texts = [node.text for node in nodes]
-                    metadatas = [node.metadata for node in nodes]
+                    metadatas = [flatten_metadata(node.metadata) for node in nodes]
                     ids = [f"{file.filename}_{i}_{os.urandom(4).hex()}" for i in range(len(nodes))]
 
                     # Generate Embeddings
@@ -285,117 +306,4 @@ async def upload_documents(
         raise  # Re-raise custom exceptions
     except Exception as e:
         logger.error(f"Upload failed: {e}", exc_info=True)
-        raise IngestionError(str(e))
-
-
-@router.post("/ingest-documents")
-async def ingest_documents(
-    background_tasks: BackgroundTasks,
-    files: List[UploadFile] = File(...),
-    collection_name: str = Form(...),
-    chunk_size: int = Form(500),
-    chunk_overlap: int = Form(50),
-    rag_client=Depends(get_rag_client),
-    current_user: User = Depends(get_current_user)
-):
-    """Ingest documents using Celery worker for background processing."""
-    logger.debug(f"Ingesting {len(files)} documents to collection '{collection_name}' using Celery")
-
-    try:
-        # Validate embedding compatibility (same as before)
-        metadata = await rag_client.get_collection_metadata(collection_name)
-        if metadata:
-            from src.services.config_service import config_service
-            config = config_service.load_configuration()
-            current_model = config.get("EMBEDDING_MODEL", "nomic-embed-text:latest")
-            collection_model = metadata.get("embedding_model")
-            
-            # Simple check for now
-            if collection_model and current_model != collection_model:
-                 logger.warning(f"Embedding mismatch: {current_model} vs {collection_model}")
-                 # We allow it but log warning, strict check can be re-enabled if needed
-
-        # Prepare Task ID
-        import uuid
-        task_id = str(uuid.uuid4())
-        
-        # Determine paths
-        is_docker = os.path.exists('/.dockerenv')
-        
-        if is_docker:
-            # In Docker: Write to /app/data/uploads (mapped volume)
-            upload_base = Path("/app/data/uploads")
-        else:
-            # Local Dev: Write to backend/data/uploads (host path)
-            # Assuming CWD is project root
-            upload_base = Path("backend/data/uploads").resolve()
-            
-        task_upload_dir = upload_base / task_id
-        task_upload_dir.mkdir(parents=True, exist_ok=True)
-
-        assignments = []
-
-        try:
-            # Save files
-            for file in files:
-                # Validate extension via DoclingService
-                if not docling_service.is_supported_file(file.filename):
-                    logger.warning(f"Skipping unsupported file {file.filename}")
-                    continue
-
-                local_file_path = task_upload_dir / file.filename
-                
-                content = await file.read()
-                if len(content) > MAX_FILE_SIZE:
-                    logger.warning(f"Skipping file {file.filename} (too large)")
-                    continue
-                    
-                with open(local_file_path, "wb") as buffer:
-                    buffer.write(content)
-                
-                # Determine path for Worker
-                if is_docker:
-                    worker_file_path = str(local_file_path)
-                else:
-                    worker_file_path = f"/app/data/uploads/{task_id}/{file.filename}"
-
-                assignments.append({
-                    "file_path": worker_file_path,
-                    "filename": file.filename,
-                    "collection": collection_name
-                })
-
-            if not assignments:
-                raise ValidationError("No valid files uploaded")
-
-            # Trigger Celery Task
-            task_data = {
-                "assignments": assignments,
-                "collection_name": collection_name,
-                "chunk_size": chunk_size,
-                "chunk_overlap": chunk_overlap,
-                "use_retry_policy": True
-            }
-            
-            # Use the generated task_id for Celery task ID too for consistency
-            celery_task = ingest_documents_task.apply_async(args=[task_data], task_id=task_id)
-            
-            logger.info(f"Started Celery task {task_id} for {len(assignments)} files")
-
-            return {
-                "success": True,
-                "task_id": task_id,
-                "files_count": len(assignments),
-                "collection": collection_name,
-                "status": "queued"
-            }
-
-        except Exception as e:
-            # Cleanup on failure
-            if task_upload_dir.exists():
-                shutil.rmtree(task_upload_dir)
-            raise e
-
-    except Exception as e:
-        logger.error(f"Ingest failed: {e}", exc_info=True)
         raise IngestionError(str(e))
