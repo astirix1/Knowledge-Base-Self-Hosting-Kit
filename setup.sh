@@ -41,6 +41,20 @@ else
     echo -e "${BLUE}Keeping current path.${NC}"
 fi
 
+# Ensure the directory exists (to avoid Docker creating it as root)
+final_path=$(grep "DOCS_DIR=" .env | cut -d '=' -f2)
+if [ -z "$final_path" ]; then
+    final_path="./data/docs"
+fi
+
+if [ ! -d "$final_path" ]; then
+    echo -e "\n${YELLOW}Creating documents directory at: $final_path${NC}"
+    mkdir -p "$final_path"
+    echo -e "${GREEN}Directory created with your user permissions.${NC}"
+else
+    echo -e "\n${GREEN}Documents directory exists at: $final_path${NC}"
+fi
+
 # 3. Create cache volume directory if it doesn't exist (optional, docker handles it usually)
 # But good to ensure permissions if we were mapping to host
 # echo -e "\n${YELLOW}Ensuring cache volume exists...${NC}"
