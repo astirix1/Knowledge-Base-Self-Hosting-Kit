@@ -1,0 +1,164 @@
+"""
+FastAPI dependencies for service injection.
+MODIFIED FOR INSECURE BETA: Authentication is bypassed and a dummy user is returned.
+"""
+
+from fastapi import Depends
+from sqlalchemy.orm import Session
+
+from src.database.database import get_db
+from src.database.models import User
+
+from src.core.email_clients.gmail_client import GmailClient
+from src.core.email_clients.imap_client import IMAPClient
+from src.core.rag_client import RAGClient
+from src.services.draft_service import DraftService
+from src.services.auto_draft_service import AutoDraftService
+from src.services.learning_manager import LearningManager
+from src.services.conversation_manager import ConversationManager
+
+# --- DUMMY USER SETUP FOR BETA ---
+# In a real scenario, this would be fetched from the database via auth.
+# For now, we create a persistent dummy user if one doesn't exist.
+def get_or_create_dummy_user(db: Session) -> User:
+    dummy_user = db.query(User).filter(User.username == "dummyuser").first()
+    if not dummy_user:
+        dummy_user = User(
+            id=1,
+            username="dummyuser",
+            email="dummy@example.com",
+            hashed_password="",  # Not needed
+            is_active=True
+        )
+        db.add(dummy_user)
+        db.commit()
+        db.refresh(dummy_user)
+    return dummy_user
+
+def get_current_user(db: Session = Depends(get_db)) -> User:
+    """Dummy dependency that returns a default user without any authentication."""
+    return get_or_create_dummy_user(db)
+
+def get_session_data() -> dict:
+    """Dummy dependency that returns a default config."""
+    return {
+        "user_id": 1,
+        "config": {
+            "EMAIL_PROVIDER": "gmail"
+        }
+    }
+# --- END DUMMY USER SETUP ---
+
+def get_email_client(
+    current_user: User = Depends(get_current_user)
+):
+    """Get Email Client (Gmail or IMAP) based on current configuration
+
+    IMPORTANT: This now reads config directly from .env file via config_service,
+    allowing hot-reload of email settings without backend restart.
+
+    Returns None if email provider is not configured.
+    Endpoints should handle None gracefully.
+    """
+    import os.path
+    from src.services.config_service import config_service
+
+    # Load fresh config from .env file (hot-reload!)
+    config = config_service.load_configuration()
+
+    email_provider = config.get("EMAIL_PROVIDER", "").lower()
+
+    # Check if properly configured
+    if not email_provider:
+        return None
+
+    # For IMAP, check if credentials exist
+    if email_provider == "imap":
+        email_user = config.get("EMAIL_USER", "")
+        if not email_user or email_user == "your@email.com":
+            return None
+
+    # For Gmail, check if credentials.json exists
+    if email_provider == "gmail":
+        if not os.path.exists("credentials.json"):
+            return None
+
+    try:
+        if email_provider == "gmail":
+            return GmailClient(session_state={}, config=config)
+        elif email_provider == "imap":
+            return IMAPClient(session_state={}, config=config)
+    except Exception as e:
+        # If client creation fails, return None
+        from loguru import logger
+        logger.error(f"Failed to create email client: {e}")
+        return None
+
+    return None
+
+def get_rag_client():
+    """Get RAG Client with centralized ChromaDB connection via ChromaManager"""
+    from src.services.service_manager import service_manager
+    from src.services.config_service import config_service
+    from src.core.chroma_manager import chroma_manager
+
+    # Load base config
+    config = config_service.load_configuration()
+
+    # Pass Ollama config if available (RAGClient still needs this for embeddings/LLM)
+    config_override = {}
+    ollama_config = service_manager.service_configs.get("ollama")
+    if ollama_config:
+        config_override["OLLAMA_HOST"] = ollama_config["url"]
+
+    # Pass ChromaDB config from service_manager if available
+    chroma_config = service_manager.service_configs.get("chroma")
+    if chroma_config:
+        config_override["CHROMA_HOST"] = chroma_config["url"]
+
+    # Pass embedding config from .env (critical for RAG document uploads)
+    if "EMBEDDING_MODEL" in config:
+        config_override["EMBEDDING_MODEL"] = config["EMBEDDING_MODEL"]
+    if "EMBEDDING_PROVIDER" in config:
+        config_override["EMBEDDING_PROVIDER"] = config["EMBEDDING_PROVIDER"]
+
+    # Pass LLM config for RAG queries
+    if "LLM_MODEL" in config:
+        config_override["LLM_MODEL"] = config["LLM_MODEL"]
+    if "LLM_PROVIDER" in config:
+        config_override["LLM_PROVIDER"] = config["LLM_PROVIDER"]
+
+    return RAGClient(config=config_override)
+
+def get_learning_manager(db: Session = Depends(get_db)):
+    """Get Learning Manager with database session"""
+    return LearningManager(db=db)
+
+def get_conversation_manager(db: Session = Depends(get_db)):
+    """Get Conversation Manager with database session"""
+    return ConversationManager(db=db)
+
+def get_draft_service(
+    db: Session = Depends(get_db)
+):
+    """Get Draft Service with all dependencies"""
+    from src.services.config_service import config_service
+
+    # Load config for collection names
+    config = config_service.load_configuration()
+
+    # Use the shared get_rag_client to get dynamic port config
+    rag_client = get_rag_client()
+    learning_manager = LearningManager(db=db)
+    conversation_manager = ConversationManager(db=db)
+
+    return DraftService(
+        rag_client=rag_client,
+        learning_manager=learning_manager,
+        conversation_manager=conversation_manager,
+        config_override=config
+    )
+
+def get_auto_draft_service():
+    """Get Auto-Draft Service with default config"""
+    return AutoDraftService(config_override={})

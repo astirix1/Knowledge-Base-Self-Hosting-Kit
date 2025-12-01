@@ -1,0 +1,115 @@
+"""Abstract Base Class for all email clients."""
+
+from abc import ABC, abstractmethod
+from typing import List, Dict, Optional, Any
+
+class AbstractEmailClient(ABC):
+    """Abtrakte Basisklasse, die die Schnittstelle für alle E-Mail-Clients definiert."""
+
+    @abstractmethod
+    def __init__(self, session_state: Dict[str, Any], config: Dict[str, Any]):
+        """Initialisiert den Client mit der Konfiguration und dem Session State."""
+        pass
+
+    @abstractmethod
+    def is_authenticated(self) -> bool:
+        """Prüft, ob der Client authentifiziert und verbunden ist."""
+        pass
+
+    @abstractmethod
+    def get_auth_url(self) -> Optional[str]:
+        """Gibt eine Authentifizierungs-URL für OAuth-Flows zurück, falls zutreffend."""
+        pass
+
+    @abstractmethod
+    def handle_auth_callback(self, code: str) -> bool:
+        """Verarbeitet den OAuth-Callback, falls zutreffend."""
+        pass
+
+    @abstractmethod
+    def get_unread_emails(self, max_results: int = 10, folder_name: str = "INBOX") -> List[Dict]:
+        """Ruft ungelesene E-Mails aus einem bestimmten Ordner ab."""
+        pass
+
+    @abstractmethod
+    def get_emails(self, max_count: int = 20, folder_name: str = "INBOX") -> List[Dict[str, Any]]:
+        """Ruft eine Liste von E-Mails aus einem bestimmten Ordner ab."""
+        pass
+
+    @abstractmethod
+    def get_email_details(self, message_id: str) -> Optional[Dict]:
+        """Ruft die Details einer bestimmten E-Mail ab."""
+        pass
+
+    @abstractmethod
+    def create_draft(self, to: str, subject: str, body: str, thread_id: Optional[str] = None, in_reply_to: Optional[str] = None) -> Optional[str]:
+        """Erstellt einen E-Mail-Entwurf."""
+        pass
+
+    @abstractmethod
+    def get_thread_history(self, thread_id: str, max_messages: int = 10) -> List[Dict]:
+        """Ruft den Verlauf eines E-Mail-Threads ab."""
+        pass
+
+    @abstractmethod
+    def move_to_label(self, message_id: str, label: str) -> bool:
+        """Verschiebt eine E-Mail in einen bestimmten Ordner/Label."""
+        pass
+
+    @abstractmethod
+    def check_draft_status(self, draft_id: str) -> str:
+        """Prüft den Status eines Drafts (z.B. 'exists', 'deleted')."""
+        pass
+
+    @abstractmethod
+    def get_emails(self, max_count: int = 20) -> List[Dict[str, Any]]:
+        """Ruft eine Liste von E-Mails aus dem primären Posteingang ab."""
+        pass
+
+    @abstractmethod
+    def list_folders(self) -> List[str]:
+        """Gibt eine Liste der verfügbaren Ordner/Labels zurück."""
+        pass
+
+    @abstractmethod
+    def get_user_email(self) -> Optional[str]:
+        """Gibt die E-Mail-Adresse des authentifizierten Benutzers zurück.
+
+        Returns:
+            E-Mail-Adresse als String oder None wenn nicht verfügbar.
+        """
+        pass
+
+    @abstractmethod
+    def clear_inbox(self) -> Dict[str, Any]:
+        """Markiert alle E-Mails im Posteingang als gelesen oder verschiebt sie.
+
+        Returns:
+            Ein Dictionary mit dem Ergebnis, z.B. {'status': 'success', 'count': 10}.
+        """
+        pass
+
+    @abstractmethod
+    def remove_label_from_email(self, message_id: str, folder_or_label_name: str) -> bool:
+        """Remove a label/folder from an email.
+
+        For Gmail: Removes the label from the message
+        For IMAP: Moves the message from the folder back to INBOX
+
+        Args:
+            message_id: Email message ID or UID
+            folder_or_label_name: Label name (Gmail) or folder name (IMAP)
+
+        Returns:
+            True if successful, False otherwise
+        """
+        pass
+
+    @abstractmethod
+    def get_emails_from_folder(
+        self,
+        folder_name: str,
+        max_results: int = 10
+    ) -> List[Dict[str, Any]]:
+        """Get unread emails from a specific folder/label."""
+        pass

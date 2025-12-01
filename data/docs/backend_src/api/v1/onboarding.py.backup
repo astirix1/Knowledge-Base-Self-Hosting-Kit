@@ -1,0 +1,81 @@
+"""
+Onboarding API endpoints.
+Provides endpoints for the onboarding flow in Developer Edition.
+"""
+
+from fastapi import APIRouter, Depends
+from typing import Dict, Any
+
+from src.services.onboarding_service import onboarding_service, OnboardingService
+from src.services.auth_service import get_current_user
+from src.database.models import User
+from src.core.feature_limits import Edition
+
+router = APIRouter()
+
+
+@router.get("/onboarding/welcome")
+async def get_welcome_info(
+    current_user: User = Depends(get_current_user)
+) -> Dict[str, Any]:
+    """
+    Get welcome information for the onboarding flow.
+    
+    Returns:
+        Dictionary with welcome information, next steps, and limitations
+    """
+    return onboarding_service.get_welcome_message()
+
+
+@router.get("/onboarding/status")
+async def get_onboarding_status(
+    current_user: User = Depends(get_current_user)
+) -> Dict[str, Any]:
+    """
+    Get current onboarding status for the user.
+    
+    Returns:
+        Dictionary with onboarding progress and completion status
+    """
+    # In a real implementation, this would check the user's actual progress
+    # For now, we return a basic status
+    welcome_info = onboarding_service.get_welcome_message()
+    
+    return {
+        "completed": False,  # Initially not completed
+        "current_step": 1,
+        "completed_steps": [],
+        "next_step": welcome_info["next_steps"][0] if welcome_info["next_steps"] else {},
+        "edition": welcome_info["edition"]
+    }
+
+
+@router.post("/onboarding/step-complete")
+async def mark_step_complete(
+    step_id: int,
+    current_user: User = Depends(get_current_user)
+) -> Dict[str, Any]:
+    """
+    Mark a onboarding step as complete.
+    
+    Args:
+        step_id: ID of the step to mark as complete
+        
+    Returns:
+        Updated onboarding status
+    """
+    # In a real implementation, this would update the user's progress in DB
+    welcome_info = onboarding_service.get_welcome_message()
+    
+    # Find the next step
+    next_step = {}
+    for step in welcome_info["next_steps"]:
+        if step["step"] > step_id:
+            next_step = step
+            break
+    
+    return {
+        "step_completed": step_id,
+        "next_step": next_step,
+        "completed_all": len(welcome_info["next_steps"]) <= step_id
+    }

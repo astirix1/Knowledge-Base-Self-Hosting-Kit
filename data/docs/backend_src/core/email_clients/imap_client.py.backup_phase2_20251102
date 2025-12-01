@@ -1,0 +1,662 @@
+"""IMAP/SMTP email client for generic email providers."""
+
+import imaplib
+import smtplib
+import email
+import re
+import time
+from email.header import decode_header
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.utils import make_msgid
+from email_reply_parser import EmailReplyParser
+import re
+from typing import List, Dict, Optional, Any
+from loguru import logger
+
+from .base_client import AbstractEmailClient
+
+class IMAPClient(AbstractEmailClient):
+    """IMAP/SMTP client for handling standard email servers."""
+
+    def __init__(self, session_state: Dict[str, Any], config: Dict[str, Any]):
+        self.config = config
+        self.imap_server = None
+        self.smtp_server = None
+        self.user = config.get('EMAIL_USER')
+        self.password = config.get('EMAIL_PASSWORD')
+        self.imap_host = config.get('IMAP_HOST')
+        self.smtp_host = config.get('SMTP_HOST')
+        self.imap_port = config.get('IMAP_PORT', 993)
+        self.smtp_port = config.get('SMTP_PORT', 465)
+        self.is_authenticated()
+
+    def is_authenticated(self) -> bool:
+        """Connects and authenticates with the IMAP and SMTP servers."""
+        if self.imap_server and self.smtp_server:
+            return True
+        try:
+            # Connect to IMAP server
+            logger.info(f"Connecting to IMAP server: {self.imap_host}:{self.imap_port}")
+            self.imap_server = imaplib.IMAP4_SSL(self.imap_host, self.imap_port)
+            self.imap_server.login(self.user, self.password)
+            logger.info("IMAP login successful.")
+
+            # Connect to SMTP server
+            logger.info(f"Connecting to SMTP server: {self.smtp_host}:{self.smtp_port}")
+            self.smtp_server = smtplib.SMTP_SSL(self.smtp_host, self.smtp_port)
+            self.smtp_server.login(self.user, self.password)
+            logger.info("SMTP login successful.")
+            return True
+        except Exception as e:
+            logger.error(f"IMAP/SMTP authentication failed: {e}")
+            self.imap_server = None
+            self.smtp_server = None
+            return False
+
+    def _ensure_connected(self) -> bool:
+        """Ensure IMAP connection is alive, reconnect if needed."""
+        if not self.imap_server:
+            logger.warning("IMAP server not initialized")
+            return self.is_authenticated()
+
+        try:
+            # NOOP command = IMAP "ping" to test connection
+            status, _ = self.imap_server.noop()
+            if status == 'OK':
+                return True
+            else:
+                logger.warning(f"IMAP NOOP returned: {status}, reconnecting...")
+                return self.is_authenticated()
+        except Exception as e:
+            logger.warning(f"IMAP connection lost ({e}), reconnecting...")
+            self.imap_server = None
+            self.smtp_server = None
+            return self.is_authenticated()
+
+    def get_auth_url(self) -> Optional[str]:
+        """Not applicable for IMAP. Returns None."""
+        logger.info("get_auth_url is not supported for IMAP client.")
+        return None
+
+    def handle_auth_callback(self, code: str) -> bool:
+        """Not applicable for IMAP. Returns False."""
+        logger.info("handle_auth_callback is not supported for IMAP client.")
+        return False
+
+    def get_unread_emails(self, max_results: int = 10, folder_name: str = "INBOX") -> List[Dict]:
+        """Fetches unread emails from the specified folder."""
+        if not self.is_authenticated():
+            return []
+
+        if not self._ensure_connected():
+            logger.error("IMAP connection check failed")
+            return []
+
+        try:
+            status, select_data = self.imap_server.select(f'"{folder_name}"')
+            if status != 'OK':
+                logger.error(f"Failed to select folder {folder_name}: {select_data}")
+                return []
+            logger.info(f"Folder {folder_name} selected: {select_data}")
+
+            status, messages = self.imap_server.search(None, '(UNSEEN)')
+            if status != 'OK':
+                logger.error("Failed to search for unread emails.")
+                return []
+            logger.info(f"IMAP search response for UNSEEN in {folder_name}: {messages}")
+
+            email_ids = messages[0].split()
+            emails = []
+            # Fetch latest emails first
+            for i in range(len(email_ids) - 1, -1, -1):
+                if len(emails) >= max_results:
+                    break
+                email_id = email_ids[i]
+                details = self.get_email_details(email_id.decode())
+                if details:
+                    emails.append(details)
+            return emails
+        except Exception as e:
+            logger.error(f"Error fetching unread emails from {folder_name}: {e}")
+            return []
+
+    def get_emails(self, max_count: int = 20, folder_name: str = "INBOX") -> List[Dict[str, Any]]:
+        """Fetches emails from the specified folder."""
+        if not self.is_authenticated():
+            return []
+
+        if not self._ensure_connected():
+            logger.error("IMAP connection check failed")
+            return []
+
+        try:
+            self.imap_server.select(f'"{folder_name}"')
+            status, messages = self.imap_server.search(None, 'ALL')
+            if status != 'OK':
+                logger.error(f"Failed to search for emails in {folder_name}.")
+                return []
+
+            email_ids = messages[0].split()
+            emails = []
+            # Fetch latest emails first
+            for i in range(len(email_ids) - 1, -1, -1):
+                if len(emails) >= max_count:
+                    break
+                email_id = email_ids[i]
+                details = self.get_email_details(email_id.decode())
+                if details:
+                    emails.append(details)
+            return emails
+        except Exception as e:
+            logger.error(f"Error fetching emails from {folder_name}: {e}")
+            return []
+
+    def get_email_details(self, message_id: str) -> Optional[Dict]:
+        """Fetches the details of a specific email by its IMAP ID."""
+        if not self.is_authenticated():
+            return None
+
+        if not self._ensure_connected():
+            logger.error("IMAP connection check failed")
+            return None
+
+        try:
+            status, msg_data = self.imap_server.fetch(message_id, '(RFC822)')
+            if status != 'OK':
+                logger.error(f"Failed to fetch email with ID: {message_id}")
+                return None
+
+            for response_part in msg_data:
+                if isinstance(response_part, tuple):
+                    msg = email.message_from_bytes(response_part[1])
+                    subject, encoding = decode_header(msg["Subject"])[0]
+                    if isinstance(subject, bytes):
+                        subject = subject.decode(encoding if encoding else "utf-8")
+
+                    sender, encoding = decode_header(msg.get("From"))[0]
+                    if isinstance(sender, bytes):
+                        sender = sender.decode(encoding if encoding else "utf-8")
+
+                    # Extract In-Reply-To header for thread reconstruction
+                    in_reply_to = msg.get('In-Reply-To', '')
+                    if in_reply_to:
+                        # Remove < > brackets for consistency
+                        in_reply_to = in_reply_to.strip('<>')
+
+                    body = ""
+                    if msg.is_multipart():
+                        for part in msg.walk():
+                            content_type = part.get_content_type()
+                            content_disposition = str(part.get("Content-Disposition"))
+                            try:
+                                if content_type == "text/plain" and "attachment" not in content_disposition:
+                                    # Robust decoding with fallback
+                                    try:
+                                        payload = part.get_payload(decode=True)
+                                        if payload:
+                                            body = payload.decode('utf-8')
+                                        else:
+                                            body = ""
+                                    except (UnicodeDecodeError, AttributeError) as e:
+                                        logger.warning(f"UTF-8 decode failed, trying latin-1: {e}")
+                                        try:
+                                            body = payload.decode('latin-1')
+                                        except:
+                                            logger.error(f"All decoding attempts failed, using raw string")
+                                            body = str(payload) if payload else ""
+                                    break
+                            except:
+                                pass
+                    else:
+                        # Single-part body with robust decoding
+                        try:
+                            payload = msg.get_payload(decode=True)
+                            if payload:
+                                body = payload.decode('utf-8')
+                            else:
+                                body = ""
+                        except (UnicodeDecodeError, AttributeError) as e:
+                            logger.warning(f"UTF-8 decode failed, trying latin-1: {e}")
+                            try:
+                                body = payload.decode('latin-1')
+                            except:
+                                logger.error(f"All decoding attempts failed, using raw string")
+                                body = str(payload) if payload else ""
+
+                    # Clean quoted text from replies
+                    if body:
+                        body = EmailReplyParser.parse_reply(body)
+
+                    return {
+                        'id': message_id,
+                        # IMAP has no native thread IDs. We use Message-ID as thread_id.
+                        # Thread reconstruction happens via In-Reply-To chain in get_thread_history()
+                        'thread_id': msg.get('Message-ID'),
+                        'subject': subject,
+                        'sender': sender,
+                        'date': msg.get('Date'),
+                        'body': body,
+                        'snippet': body[:150],
+                        'in_reply_to': in_reply_to
+                    }
+            return None
+        except Exception as e:
+            logger.error(f"Error fetching email details for ID {message_id}: {e}")
+            return None
+
+    def create_draft(self, to: str, subject: str, body: str, thread_id: Optional[str] = None, in_reply_to: Optional[str] = None) -> Optional[str]:
+        """Saves an email to the Drafts folder on the IMAP server."""
+        if not self.is_authenticated():
+            return None
+
+        if not self._ensure_connected():
+            logger.error("IMAP connection check failed")
+            return None
+
+        try:
+            msg = MIMEMultipart()
+            msg['From'] = self.user
+            msg['To'] = to
+            msg['Subject'] = subject
+
+            # Generate unique Message-ID for this draft (RFC 5322)
+            draft_message_id = make_msgid(domain=self.imap_host or 'localhost')
+            msg['Message-ID'] = draft_message_id
+            logger.debug(f"Generated draft Message-ID: {draft_message_id}")
+
+            if in_reply_to:
+                msg.add_header('In-Reply-To', in_reply_to)
+                msg.add_header('References', in_reply_to)
+
+            msg.attach(MIMEText(body, 'plain'))
+
+            draft_folder = self._find_draft_folder()
+            if not draft_folder:
+                logger.error("Could not find a drafts folder to save the email.")
+                return None
+            
+            # Save to the found drafts folder
+            self.imap_server.append(f'"{draft_folder}"', '', imaplib.Time2Internaldate(time.localtime()), msg.as_bytes())
+            logger.info(f"Draft saved to folder '{draft_folder}' for {to}")
+
+            # Return Message-ID without < > brackets for easier handling
+            return f"imap_draft_{draft_message_id.strip('<>')}"
+        except Exception as e:
+            logger.error(f"Failed to create draft: {e}")
+            return None
+
+    def get_thread_history(self, thread_id: str, max_messages: int = 10) -> List[Dict]:
+        """Reconstruct email thread by following In-Reply-To chain backwards."""
+        if not self.is_authenticated():
+            return []
+
+        if not self._ensure_connected():
+            logger.error("IMAP connection check failed")
+            return []
+
+        thread_emails = []
+        current_message_id = thread_id  # thread_id IS the Message-ID
+
+        try:
+            for iteration in range(max_messages):  # Safety: prevent infinite loops
+                # 1. Search for email with this Message-ID
+                self.imap_server.select('INBOX')  # Ensure folder is selected
+                status, data = self.imap_server.search(
+                    None,
+                    f'(HEADER Message-ID "{current_message_id}")'
+                )
+
+                if status != 'OK' or not data[0]:
+                    logger.debug(f"No email found with Message-ID: {current_message_id}")
+                    break  # End of thread chain
+
+                # 2. Get UID and fetch email details
+                uid = data[0].split()[0].decode()  # First result = our email
+                email_details = self.get_email_details(uid)
+
+                if not email_details:
+                    logger.warning(f"Could not fetch details for UID: {uid}")
+                    break
+
+                thread_emails.append(email_details)
+
+                # 3. Move to parent email via In-Reply-To
+                current_message_id = email_details.get('in_reply_to', '').strip()
+                if not current_message_id:
+                    logger.debug("Reached thread start (no In-Reply-To header)")
+                    break  # No parent = this is the first email in thread
+
+            # 4. Reverse list: oldest email first (chronological order)
+            thread_emails.reverse()
+            logger.info(f"Thread reconstruction: found {len(thread_emails)} emails")
+            return thread_emails
+
+        except Exception as e:
+            logger.error(f"Error reconstructing thread: {e}")
+            return []  # Graceful degradation: return empty on error
+
+    def move_to_label(self, message_id: str, label: str = None) -> bool:
+        """Moves an email to a specific folder (label)."""
+        if not self.is_authenticated():
+            return False
+
+        if not self._ensure_connected():
+            logger.error("IMAP connection check failed")
+            return False
+
+        # Use default label if none provided
+        if not label:
+            label = self.config.get('GMAIL_LABEL', 'processed')
+            logger.info(f"No label specified, using default: {label}")
+
+        # Validate target folder exists before attempting copy
+        available_folders = self.list_folders()
+        if label not in available_folders:
+            logger.error(f"Target folder '{label}' does not exist.")
+            logger.info(f"Available folders: {', '.join(available_folders)}")
+            return False
+
+        try:
+            # Try to copy message to destination folder
+            result = self.imap_server.copy(message_id, label)
+
+            if result[0] != 'OK':
+                logger.error(f"Failed to copy message {message_id} to {label}: {result}")
+                return False  # Early return - KEIN Löschen wenn Copy fehlschlägt!
+
+            # Copy successful - now safe to delete original
+            self.imap_server.store(message_id, '+FLAGS', '\\Deleted')
+            self.imap_server.expunge()
+            logger.info(f"Successfully moved message {message_id} to {label}")
+            return True
+        except Exception as e:
+            logger.error(f"Error moving message {message_id}: {e}")
+            return False
+
+    def check_draft_status(self, draft_id: str) -> str:
+        """Checks if a draft with given ID exists in Drafts folder.
+
+        Args:
+            draft_id: Format "imap_draft_<message_id>" from create_draft()
+
+        Returns:
+            "exists", "deleted", or "unknown"
+        """
+        if not self.is_authenticated():
+            return "unknown"
+
+        if not self._ensure_connected():
+            logger.error("IMAP connection check failed")
+            return "unknown"
+
+        try:
+            # Extract Message-ID from draft_id (format: imap_draft_<msgid>)
+            if not draft_id.startswith('imap_draft_'):
+                logger.warning(f"Invalid draft_id format: {draft_id}")
+                return "unknown"
+
+            message_id = draft_id.replace('imap_draft_', '')
+            message_id_header = f"<{message_id}>"  # Re-add brackets for search
+
+            # Search in Drafts folder
+            draft_folder = self._find_draft_folder()
+            if not draft_folder:
+                return "unknown"
+
+            self.imap_server.select(f'"{draft_folder}"')
+            status, data = self.imap_server.search(
+                None,
+                f'(HEADER Message-ID "{message_id_header}")'
+            )
+
+            if status == 'OK' and data[0]:
+                return "exists"
+            else:
+                return "deleted"  # Not found = deleted or sent
+
+        except Exception as e:
+            logger.error(f"Error checking IMAP draft status: {e}")
+            return "unknown"
+
+    def list_folders(self) -> List[str]:
+        """Lists all folders/mailboxes on the IMAP server."""
+        if not self.is_authenticated():
+            return []
+
+        if not self._ensure_connected():
+            logger.error("IMAP connection check failed")
+            return []
+
+        try:
+            status, folders = self.imap_server.list()
+            if status == 'OK':
+                return [self._decode_folder_name(folder) for folder in folders]
+            else:
+                logger.error("Failed to list folders.")
+                return []
+        except Exception as e:
+            logger.error(f"Error listing folders: {e}")
+            return []
+
+    def _decode_folder_name(self, folder_data: bytes) -> str:
+        """Decodes the folder name from the raw LIST response."""
+        # The response format is like: (\HasNoChildren) "/" "INBOX"
+        match = re.search(r'"([^"]+)"$', folder_data.decode('utf-8', 'ignore'))
+        return match.group(1) if match else ''
+
+    def _find_draft_folder(self) -> Optional[str]:
+        """Finds a suitable drafts folder using special-use flags first, then by name.
+
+        Enhanced to support:
+        - Gmail: [Gmail]/Drafts, [Gmail]/Entwürfe (DE)
+        - Client-created: [Imap]/Drafts, [Imap]/Entwürfe
+        - Standard: Drafts, DRAFTS, drafts
+        - Localized: Entwürfe (DE), Brouillons (FR), Borradores (ES)
+        """
+        try:
+            # 1. Get ALL folders for debugging
+            typ, data = self.imap_server.list()
+            all_folders = []
+
+            if typ == 'OK' and data:
+                logger.info("=== IMAP Folder List (searching for Drafts) ===")
+                for line in data:
+                    if line:
+                        line_str = line.decode('utf-8', 'ignore')
+                        all_folders.append(line_str)
+                        logger.debug(f"  Folder: {line_str}")
+
+                        # Check for \Drafts special-use flag
+                        if '\\Drafts' in line_str:
+                            # Extract folder name - improved regex
+                            # Format: (flags) "separator" "foldername"
+                            match = re.search(r'\([^)]*\) "[^"]*" "([^"]+)"', line_str)
+                            if not match:
+                                # Try without quotes
+                                match = re.search(r'\([^)]*\) "[^"]*" (.+)$', line_str)
+
+                            if match:
+                                folder_name = match.group(1).strip('"')
+                                logger.info(f"✅ Found drafts folder via \\Drafts flag: '{folder_name}'")
+                                return folder_name
+
+            # 2. Fallback: Search by common names (prioritized by likelihood)
+            logger.warning("⚠️  No \\Drafts flag found, searching by folder name...")
+
+            common_draft_folders = [
+                # Gmail variants (most common for Gmail accounts)
+                '[Gmail]/Drafts',       # English Gmail
+                '[Gmail]/Entwürfe',     # German Gmail - ADDED!
+                '[Gmail]/Brouillons',   # French Gmail
+                '[Gmail]/Borradores',   # Spanish Gmail
+
+                # Client-created variants (Thunderbird, Outlook, etc.)
+                '[Imap]/Drafts',        # English client-created - ADDED!
+                '[Imap]/Entwürfe',      # German client-created - ADDED!
+
+                # Standard names (case variations)
+                'Drafts',
+                'DRAFTS',
+                'drafts',
+
+                # Localized standard names
+                'Entwürfe',             # German
+                'Brouillons',           # French
+                'Borradores',           # Spanish
+                'Concepten',            # Dutch
+                'Bozze',                # Italian
+            ]
+
+            for folder in common_draft_folders:
+                try:
+                    # SELECT to check if folder exists (more reliable than LIST with pattern)
+                    status, count_data = self.imap_server.select(f'"{folder}"', readonly=True)
+                    if status == 'OK':
+                        logger.info(f"✅ Found drafts folder by name: '{folder}'")
+                        # Return to INBOX after test
+                        self.imap_server.select('INBOX')
+                        return folder
+                except Exception as e:
+                    logger.debug(f"  Folder '{folder}' not found: {e}")
+                    continue
+
+            # 3. Last resort: Search in all folders for anything containing "draft"
+            logger.warning("⚠️  Standard search failed, searching all folders for 'draft' keyword...")
+            for line_str in all_folders:
+                # Extract folder name
+                match = re.search(r'\([^)]*\) "[^"]*" "?([^"]+)"?', line_str)
+                if match:
+                    folder_name = match.group(1).strip('"')
+                    if 'draft' in folder_name.lower() or 'entwurf' in folder_name.lower():
+                        logger.info(f"✅ Found potential drafts folder by keyword: '{folder_name}'")
+                        return folder_name
+
+        except Exception as e:
+            logger.error(f"❌ Error while searching for drafts folder: {e}", exc_info=True)
+            return None
+
+        logger.error("❌ CRITICAL: No drafts folder found after all search methods!")
+        logger.error(f"Available folders: {len(all_folders)} total")
+        logger.error("Please check your email account settings or create a Drafts folder manually.")
+        return None
+
+    def get_user_email(self) -> Optional[str]:
+        """Returns the authenticated user's email address."""
+        return self.user  # self.user is set in __init__ from EMAIL_USER config
+
+    def clear_inbox(self) -> Dict[str, Any]:
+        """Marks all unread emails in the INBOX as read."""
+        if not self.is_authenticated() or not self._ensure_connected():
+            logger.error("IMAP connection not available.")
+            return {"status": "error", "message": "IMAP connection not available."}
+
+        try:
+            self.imap_server.select('"INBOX"')
+            status, messages = self.imap_server.search(None, '(UNSEEN)')
+            if status != 'OK':
+                logger.error("Failed to search for unread emails in INBOX.")
+                return {"status": "error", "message": "Failed to search for unread emails."}
+
+            email_ids = messages[0].split()
+            if not email_ids:
+                logger.info("clear_inbox: No unread emails found.")
+                return {"status": "success", "count": 0, "message": "No unread emails to clear."}
+
+            for email_id in email_ids:
+                self.imap_server.store(email_id, '+FLAGS', '\\Seen')
+            
+            count = len(email_ids)
+            logger.info(f"Successfully marked {count} emails as read in INBOX.")
+            return {"status": "success", "count": count, "message": f"Cleared {count} emails."}
+
+        except Exception as e:
+            logger.error(f"Error clearing IMAP inbox: {e}")
+            return {"status": "error", "message": str(e)}
+
+
+    def remove_label_from_email(self, message_id: str, folder_name: str) -> bool:
+        """
+        Remove email from a specific IMAP folder (move back to INBOX).
+
+        Args:
+            message_id: IMAP message UID
+            folder_name: IMAP folder to remove from (e.g., "AI_DRAFT")
+
+        Returns:
+            True if successful, False otherwise
+        """
+        self._ensure_connected()
+
+        try:
+            # Select the folder containing the email
+            status, count = self.imap_server.select(f"\"{folder_name}\"")
+            if status != "OK":
+                logger.error(f"Could not select folder: {folder_name}")
+                return False
+
+            # Move email back to INBOX (copy + delete)
+            # Note: message_id here is the UID from the folder
+            result = self.imap_server.copy(message_id, "\"INBOX\"")
+            if result[0] == "OK":
+                # Mark original as deleted
+                self.imap_server.store(message_id, '+FLAGS', '\\Deleted')
+                # Expunge to actually remove
+                self.imap_server.expunge()
+
+                logger.info(f"Moved email {message_id} from {folder_name} to INBOX")
+                return True
+            else:
+                logger.error(f"Failed to copy email {message_id} from {folder_name} to INBOX")
+                return False
+
+        except Exception as e:
+            logger.error(f"Error removing email from folder {folder_name}: {e}")
+            return False
+        finally:
+            # Switch back to INBOX
+            self.imap_server.select("\"INBOX\"")
+
+    def get_emails_from_folder(self, folder_name: str, max_results: int = 10) -> List[Dict[str, Any]]:
+        """
+        Get unread emails from a specific IMAP folder.
+
+        Args:
+            folder_name: IMAP folder path (e.g., "INBOX/AI_DRAFT" or "AI_DRAFT")
+            max_results: Maximum number of emails to fetch
+
+        Returns:
+            List of email dicts
+        """
+        self._ensure_connected()
+
+        try:
+            # Select folder
+            status, count = self.imap_server.select(f"\"{folder_name}\"")
+            if status != "OK":
+                raise Exception(f"Could not select folder: {folder_name}")
+
+            # Search for unread emails
+            status, messages = self.imap_server.search(None, "UNSEEN")
+            if status != "OK":
+                return []
+
+            email_ids = messages[0].split()
+            # Get the most recent emails up to max_results
+            email_ids = email_ids[-max_results:] if len(email_ids) > max_results else email_ids
+
+            emails = []
+            for email_id in email_ids:
+                email_data = self.get_email_details(email_id.decode())
+                if email_data:
+                    emails.append(email_data)
+
+            return emails
+
+        except Exception as e:
+            logger.error(f"Error fetching from folder {folder_name}: {e}")
+            return []
+        finally:
+            # Switch back to INBOX
+            self.imap_server.select("\"INBOX\"")
+

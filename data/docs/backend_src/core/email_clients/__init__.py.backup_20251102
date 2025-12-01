@@ -1,0 +1,28 @@
+"""Factory for creating email client instances."""
+
+from typing import Dict, Any, Optional
+
+from .base_client import AbstractEmailClient
+from .gmail_client import GmailClient
+from .imap_client import IMAPClient
+
+def get_email_client(config: Dict[str, Any], session_state: Dict[str, Any]) -> Optional[AbstractEmailClient]:
+    """
+    Factory function to get the appropriate email client based on configuration.
+
+    Args:
+        config: The application configuration dictionary.
+        session_state: The Streamlit session state dictionary.
+
+    Returns:
+        An instance of a class that inherits from AbstractEmailClient, or None if config is missing.
+    """
+    provider = config.get("EMAIL_PROVIDER", "google").lower()
+
+    if provider == "google":
+        return GmailClient(session_state=session_state, config=config)
+    elif provider == "imap":
+        return IMAPClient(session_state=session_state, config=config)
+    else:
+        # Default to Google if provider is unknown or not set
+        return GmailClient(session_state=session_state, config=config)
