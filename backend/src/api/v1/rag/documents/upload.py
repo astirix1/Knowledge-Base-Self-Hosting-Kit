@@ -203,76 +203,45 @@ async def upload_documents(
                         'processed_by': 'docling_service_v1'
                     })
 
-                    # Use LlamaIndex SentenceSplitter on the Markdown content
-                    from llama_index.core.node_parser import SentenceSplitter
-                    from llama_index.core.schema import Document as LlamaDocument
-                    
-                    text_splitter = SentenceSplitter(
+                    # Use IndexingService via RAGClient
+                    # This ensures both Vector Store and BM25 Index are updated
+                    from src.core.indexing_service import Document, ChunkConfig
+
+                    # Create Document object
+                    doc = Document(
+                        content=markdown_content,
+                        metadata=doc_metadata
+                    )
+
+                    # Create ChunkConfig
+                    chunk_config = ChunkConfig(
                         chunk_size=chunk_size,
                         chunk_overlap=chunk_overlap
                     )
 
-                    llama_doc = LlamaDocument(
-                        text=markdown_content,
-                        metadata=doc_metadata
+                    # Index using RAGClient (which uses IndexingService)
+                    response = await rag_client.index_documents(
+                        documents=[doc],
+                        collection_name=collection_name,
+                        chunk_config=chunk_config
                     )
 
-                    # Split content
-                    nodes = text_splitter.get_nodes_from_documents([llama_doc])
-
-                    # Prepare for ChromaDB
-                    try:
-                        collection = await asyncio.to_thread(
-                            rag_client.chroma_manager.get_collection,
-                            collection_name
-                        )
-                    except Exception:
-                        response = await rag_client.create_collection(name=collection_name)
-                        if not response.is_success:
-                            raise ChromaDBError(f"Failed to create collection: {response.error}")
-                        collection = await asyncio.to_thread(
-                            rag_client.chroma_manager.get_collection,
-                            collection_name
-                        )
-
-                    texts = [node.text for node in nodes]
-                    metadatas = [flatten_metadata(node.metadata) for node in nodes]
-                    ids = [f"{file.filename}_{i}_{os.urandom(4).hex()}" for i in range(len(nodes))]
-
-                    # Generate Embeddings
-                    embedding_instance = rag_client.embedding_manager.get_embeddings()
-                    if not embedding_instance:
-                        raise ServiceUnavailableError("embedding", "Failed to initialize embeddings")
-
-                    if hasattr(embedding_instance, 'aget_text_embedding_batch'):
-                        embeddings = await embedding_instance.aget_text_embedding_batch(texts)
-                    elif hasattr(embedding_instance, 'get_text_embedding_batch'):
-                        embeddings = await asyncio.to_thread(embedding_instance.get_text_embedding_batch, texts)
-                    elif hasattr(embedding_instance, 'aembed_documents'):
-                        embeddings = await embedding_instance.aembed_documents(texts)
-                    elif hasattr(embedding_instance, 'embed_documents'):
-                        embeddings = await asyncio.to_thread(embedding_instance.embed_documents, texts)
-                    else:
-                        raise ServiceUnavailableError("embedding", "Embedding instance has no compatible embed method")
-
-                    # Add to ChromaDB
-                    await asyncio.to_thread(collection.add,
-                        documents=texts,
-                        embeddings=embeddings,
-                        metadatas=metadatas,
-                        ids=ids
-                    )
-
-                    chunk_count = len(nodes)
+                    if not response.is_success:
+                         raise IngestionError(f"Indexing failed: {response.error}")
+                    
+                    # Extract stats from response
+                    chunk_count = response.data.get("indexed_nodes", 0)
                     total_chunks += chunk_count
-
+                    
                     results.append({
                         "filename": file.filename,
                         "success": True,
                         "chunks": chunk_count
                     })
 
-                    logger.info(f"Successfully uploaded '{file.filename}': {chunk_count} chunks")
+                    logger.info(f"Successfully uploaded and indexed '{file.filename}': {chunk_count} chunks")
+
+
 
                 except Exception as file_error:
                     logger.error(f"Failed to upload '{file.filename}': {file_error}")
