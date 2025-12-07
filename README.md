@@ -524,9 +524,30 @@ Contributions welcome! This is the Community Edition - we encourage:
 
 ## 📜 License
 
-MIT © 2025 [Your Name/Organization]
+MIT License - Use freely in commercial and open-source projects.
+Validated Table Extractor
+Copyright (c) 2025 2dogsandanerd
 
-See `LICENSE` for details.
+This product includes software developed by IBM (Docling) and other open source contributors.
+
+Docling: https://github.com/DS4SD/docling (MIT License)
+Copyright (c) 2024 IBM Corp.
+
+---
+
+## Citation
+
+If you use this tool in research or production, please cite:
+
+```bibtex
+@software{validated_table_extractor,
+  title = {Validated Table Extractor: Audit-Ready PDF Table Extraction},
+  author = {2dogsandanerd},
+  year = {2025},
+  url = {https://github.com/2dogsandanerd/validated-table-extractor}
+}
+```
+
 
 ---
 
