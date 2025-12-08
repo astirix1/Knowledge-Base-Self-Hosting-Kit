@@ -6,7 +6,7 @@
 
 **Production-ready RAG system combining Docling document processing with ChromaDB vector storage.**
 
-Extracted from [Mail Modul Alpha](https://github.com/yourusername/mail-modul-alpha) - our AI email assistant. This Community Edition focuses purely on RAG functionality without email-specific features.
+Extracted from  our AI email assistant. This Community Edition focuses purely on RAG functionality without email-specific features.
 
 ---
 
